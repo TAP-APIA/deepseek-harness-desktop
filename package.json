@@ -1,0 +1,41 @@
+{
+    "name":  "deepseek-harness-desktop",
+    "productName":  "DeepSeek Harness",
+    "version":  "1.0.0",
+    "description":  "DeepSeek Harness desktop app (Electron)",
+    "main":  "main.js",
+    "author":  "deepseek-ai",
+    "license":  "MIT",
+    "scripts":  {
+                    "start":  "electron ."
+                },
+    "build":  {
+                  "appId":  "com.deepseek.harness.desktop",
+                  "productName":  "DeepSeek Harness",
+                  "directories":  {
+                                      "output":  "dist"
+                                  },
+                  "files":  [
+                                "main.js",
+                                "titlebar.html",
+                                "package.json"
+                            ],
+                  "win":  {
+                              "target":  [
+                                             "nsis"
+                                         ],
+                              "icon":  "whale.ico"
+                          },
+                  "nsis":  {
+                               "oneClick":  false,
+                               "allowToChangeInstallationDirectory":  true,
+                               "createDesktopShortcut":  true,
+                               "createStartMenuShortcut":  true,
+                               "shortcutName":  "DeepSeek Harness"
+                           }
+              },
+    "devDependencies":  {
+                            "electron-builder":  "^26.15.3",
+                            "electron":  "^43.4.0"
+                        }
+}
