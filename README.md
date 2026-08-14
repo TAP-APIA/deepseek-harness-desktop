@@ -1,13 +1,12 @@
 # DeepSeek Harness 桌面版
 
-DeepSeek Harness 的 Windows 桌面应用（Electron）。内嵌 Chromium 打开 DeepSeek Harness Web GUI，自动管理服务生命周期，启动时静默检查官方更新。
+DeepSeek Harness 的 Windows 桌面应用（Electron）。内嵌 Chromium 打开 DeepSeek Harness Web GUI。
 
 ## 功能
 
-- 🐋 蓝色鲸鱼品牌图标，任务栏/窗口统一
-- 🪟 无边框窗口 + Windows 原生标题栏按钮（`titleBarOverlay`），白色主题与主界面一致
-- ⚡ 自动启动 `dsh web` 服务（未运行时最小化拉起）
-- 🔄 启动时静默检查 npm 官方 `@deepseek-ai/dsh` 最新版，有新版自动安装（升级日志见 `%LOCALAPPDATA%\DeepSeek Harness\updater.log`）
+- 🐋 蓝色鲸鱼品牌图标，窗口与任务栏统一
+- 🪟 无边框窗口，白色主题标题栏，Windows 原生最小化/最大化/关闭按钮
+- 🖥️ 内嵌 Chromium 内核直接打开 DeepSeek Harness Web 界面
 - 🌐 外部链接自动转系统浏览器打开
 
 ## 前置要求
