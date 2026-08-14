@@ -2,9 +2,10 @@
 // Frameless window (native caption buttons) with the DSH UI in a child WebContentsView.
 // Features: hidden dsh server console, system tray (close hides to tray, tray "quit"
 // stops the dsh server), silent auto-update of the dsh package from npm.
-const { app, BrowserWindow, WebContentsView, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, Tray, Menu, nativeImage, shell, ipcMain } = require('electron');
 const { spawn, execFile } = require('child_process');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 
@@ -24,6 +25,12 @@ const NPM_CACHE = path.join(APP_DIR, 'npm-cache');
 const UPDATE_LOG = path.join(APP_DIR, 'updater.log');
 const APP_ID = 'com.deepseek.harness.desktop';
 app.setAppUserModelId(APP_ID);
+
+// Self-update source: this GitHub repo (version comes from the main branch package.json).
+const REPO = 'TAP-APIA/deepseek-harness-desktop';
+const VERSION_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/package.json';
+const RELEASES_API = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+const UPDATES_DIR = path.join(APP_DIR, 'updates');
 
 let win = null;
 let view = null;
@@ -179,6 +186,109 @@ async function checkForUpdates() {
   }
 }
 
+// ---------- self update (GitHub) ----------
+// HTTPS GET that follows redirects (GitHub API/release URLs redirect often).
+function httpsGetJson(url, redirectsLeft = 3) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'deepseek-harness-desktop' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
+        res.resume();
+        resolve(httpsGetJson(res.headers.location, redirectsLeft - 1));
+        return;
+      }
+      if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { data += chunk; if (data.length > 2 * 1024 * 1024) req.destroy(); });
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+    });
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.on('error', reject);
+  });
+}
+
+// Stream a file from a (possibly redirecting) URL to disk.
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    const doGet = (u, redirectsLeft) => {
+      const req = https.get(u, { headers: { 'User-Agent': 'deepseek-harness-desktop' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          doGet(res.headers.location, redirectsLeft - 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          file.destroy();
+          reject(new Error('HTTP ' + res.statusCode));
+          return;
+        }
+        res.pipe(file);
+        file.on('finish', () => file.close(() => resolve(dest)));
+        file.on('error', reject);
+      });
+      req.setTimeout(120000, () => { req.destroy(); reject(new Error('download timeout')); });
+      req.on('error', reject);
+    };
+    doGet(url, 5);
+  });
+}
+
+// Compare the local app version with the repo's main branch; notify the title bar when newer.
+async function checkForAppUpdates() {
+  try {
+    const remote = await httpsGetJson(VERSION_URL);
+    const latest = remote && remote.version;
+    const installed = app.getVersion();
+    log('app update check: latest=' + latest + ' installed=' + installed);
+    if (latest && installed && isNewer(latest, installed)) {
+      log('app update available: ' + latest);
+      if (win && !win.isDestroyed()) win.webContents.send('update-available', { version: latest });
+    }
+  } catch (err) {
+    log('app update check failed: ' + err.message);
+  }
+}
+
+// Download and install the update (release installer when available, repo zip otherwise).
+async function performUpgrade() {
+  try {
+    let url = null;
+    let fileName = null;
+    try {
+      const release = await httpsGetJson(RELEASES_API);
+      const asset = release && release.assets && release.assets.find((a) => /\.exe$/i.test(a.name));
+      if (asset) { url = asset.browser_download_url; fileName = asset.name; }
+    } catch (err) {
+      log('release lookup failed: ' + err.message);
+    }
+    if (!url) {
+      // No release asset (e.g. no Release published yet): grab the source zip instead.
+      url = 'https://codeload.github.com/' + REPO + '/zip/refs/heads/main';
+      fileName = 'deepseek-harness-desktop-main.zip';
+    }
+    fs.mkdirSync(UPDATES_DIR, { recursive: true });
+    const dest = path.join(UPDATES_DIR, fileName);
+    log('downloading update: ' + url);
+    await downloadFile(url, dest);
+    log('update downloaded to ' + dest);
+    if (/\.exe$/i.test(fileName)) {
+      // Run the installer; the app quits so the installer can replace the files.
+      spawn(dest, [], { detached: true, stdio: 'ignore' });
+      app.quit();
+    } else {
+      shell.showItemInFolder(dest);
+      log('no release installer found; source zip saved to ' + dest);
+    }
+  } catch (err) {
+    log('upgrade failed: ' + err.message);
+    if (win && !win.isDestroyed()) win.webContents.send('upgrade-failed');
+  }
+}
+
+ipcMain.on('upgrade-requested', () => { performUpgrade(); });
+
 // ---------- window ----------
 function layoutView() {
   if (!win || !view) return;
@@ -258,6 +368,8 @@ app.whenReady().then(async () => {
   ensureIcon();
   createWindow();
   createTray();
+  checkForAppUpdates(); // GitHub self-update check (shows the title bar upgrade button)
+  setInterval(checkForAppUpdates, 2 * 60 * 60 * 1000); // re-check every 2 hours
   if (alreadyUp) {
     // Server already running (e.g. harness session): silent background update for next start.
     checkForUpdates();

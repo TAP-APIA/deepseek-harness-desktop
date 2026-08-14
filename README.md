@@ -9,6 +9,7 @@ DeepSeek Harness 的 Windows 桌面应用（Electron）。内嵌 Chromium 打开
 - 内嵌 Chromium 内核直接打开 DeepSeek Harness Web 界面
 - 外部链接自动转系统浏览器打开
 - 系统托盘：点击关闭最小化到托盘，托盘菜单"退出"会同时停止 dsh 服务
+- 自更新：启动时及每 2 小时从 GitHub 检查新版本，发现更新时标题栏右侧显示"升级"按钮，点击自动下载安装
 
 ## 前置要求
 
