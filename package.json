@@ -18,7 +18,8 @@
                   "files":  [
                                 "main.js",
                                 "titlebar.html",
-                                "package.json"
+                                "package.json",
+                                "whale.ico"
                             ],
                   "win":  {
                               "target":  [

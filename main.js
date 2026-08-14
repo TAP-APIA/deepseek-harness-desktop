@@ -84,6 +84,22 @@ function killServer() {
   }
 }
 
+// ---------- icon ----------
+// The whale icon ships inside the app bundle (dev dir or app.asar); copy it into
+// APP_DIR once so the tray/window icons work even though ICON points at APP_DIR.
+function ensureIcon() {
+  try {
+    const bundled = path.join(__dirname, 'whale.ico');
+    if (!fs.existsSync(ICON) && fs.existsSync(bundled)) {
+      fs.mkdirSync(APP_DIR, { recursive: true });
+      fs.copyFileSync(bundled, ICON);
+      log('icon copied to ' + ICON);
+    }
+  } catch (err) {
+    log('icon copy failed: ' + err.message);
+  }
+}
+
 // ---------- tray ----------
 function showWindow() {
   if (!win) return;
@@ -239,6 +255,7 @@ app.whenReady().then(async () => {
     await checkForUpdates();
   }
   await ensureServer();
+  ensureIcon();
   createWindow();
   createTray();
   if (alreadyUp) {
