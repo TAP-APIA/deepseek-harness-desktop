@@ -187,51 +187,99 @@ async function checkForUpdates() {
 }
 
 // ---------- self update (GitHub) ----------
-// HTTPS GET that follows redirects (GitHub API/release URLs redirect often).
-function httpsGetJson(url, redirectsLeft = 3) {
+// GitHub requests with a fake-ip/DNS-hijack workaround (e.g. Clash 198.18.x.x):
+// try the system DNS first; on connection failure re-resolve the host via DoH
+// (AliDNS 223.5.5.5, Cloudflare 1.1.1.1, Google 8.8.8.8) and retry the real IP.
+const DOH_ENDPOINTS = [
+  'https://223.5.5.5/resolve?name=HOST&type=A',
+  'https://1.1.1.1/dns-query?name=HOST&type=A',
+  'https://8.8.8.8/dns-query?name=HOST&type=A',
+];
+
+function dohResolve(hostname) {
+  return new Promise((resolve) => {
+    let i = 0;
+    const next = () => {
+      if (i >= DOH_ENDPOINTS.length) { resolve(null); return; }
+      const url = DOH_ENDPOINTS[i++].replace('HOST', encodeURIComponent(hostname));
+      https.get(url, { headers: { accept: 'application/dns-json' } }, (res) => {
+        if (res.statusCode !== 200) { res.resume(); next(); return; }
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const rec = (json.Answer || []).find((a) => a.type === 1 && /^\d+\.\d+\.\d+\.\d+$/.test(a.data));
+            resolve(rec ? rec.data : null);
+          } catch (e) { next(); }
+        });
+      }).on('error', next);
+    };
+    next();
+  });
+}
+
+// Follow redirects; each hop retries via a DoH-resolved real IP when the
+// system-DNS route fails. Resolves with the final HTTP response.
+function httpsGetSmart(url, headers, timeoutMs, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'deepseek-harness-desktop' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
-        res.resume();
-        resolve(httpsGetJson(res.headers.location, redirectsLeft - 1));
-        return;
-      }
-      if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk) => { data += chunk; if (data.length > 2 * 1024 * 1024) req.destroy(); });
-      res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
-    });
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
-    req.on('error', reject);
+    const hostname = new URL(url).hostname;
+    let usedDoh = false;
+    const run = (ip) => {
+      const opts = { headers };
+      if (ip) opts.lookup = (h, o, cb) => cb(null, ip, 4);
+      const req = https.get(url, opts, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          resolve(httpsGetSmart(res.headers.location, headers, timeoutMs, redirectsLeft - 1));
+          return;
+        }
+        resolve(res);
+      });
+      req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
+      req.on('error', (err) => {
+        if (!usedDoh) {
+          usedDoh = true;
+          dohResolve(hostname).then((ip) => {
+            if (ip) run(ip); else reject(err);
+          });
+        } else {
+          reject(err);
+        }
+      });
+    };
+    run(null);
+  });
+}
+
+// HTTPS GET that follows redirects (GitHub API/release URLs redirect often).
+function httpsGetJson(url) {
+  return new Promise((resolve, reject) => {
+    httpsGetSmart(url, { 'User-Agent': 'deepseek-harness-desktop' }, 15000)
+      .then((res) => {
+        if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { data += chunk; if (data.length > 2 * 1024 * 1024) res.destroy(); });
+        res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+      })
+      .catch(reject);
   });
 }
 
 // Stream a file from a (possibly redirecting) URL to disk.
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    const doGet = (u, redirectsLeft) => {
-      const req = https.get(u, { headers: { 'User-Agent': 'deepseek-harness-desktop' } }, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
-          res.resume();
-          doGet(res.headers.location, redirectsLeft - 1);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          file.destroy();
-          reject(new Error('HTTP ' + res.statusCode));
-          return;
-        }
+    httpsGetSmart(url, { 'User-Agent': 'deepseek-harness-desktop' }, 120000)
+      .then((res) => {
+        if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
+        const file = fs.createWriteStream(dest);
         res.pipe(file);
         file.on('finish', () => file.close(() => resolve(dest)));
         file.on('error', reject);
-      });
-      req.setTimeout(120000, () => { req.destroy(); reject(new Error('download timeout')); });
-      req.on('error', reject);
-    };
-    doGet(url, 5);
+      })
+      .catch(reject);
   });
 }
 
