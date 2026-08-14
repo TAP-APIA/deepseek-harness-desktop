@@ -236,6 +236,12 @@ function downloadFile(url, dest) {
 }
 
 // Compare the local app version with the repo's main branch; notify the title bar when newer.
+let pendingUpdate = null; // latest version found, re-sent on page (re)load so the button never misses it
+
+function sendUpdateAvailable() {
+  if (win && !win.isDestroyed() && pendingUpdate) win.webContents.send('update-available', pendingUpdate);
+}
+
 async function checkForAppUpdates() {
   try {
     const remote = await httpsGetJson(VERSION_URL);
@@ -244,7 +250,8 @@ async function checkForAppUpdates() {
     log('app update check: latest=' + latest + ' installed=' + installed);
     if (latest && installed && isNewer(latest, installed)) {
       log('app update available: ' + latest);
-      if (win && !win.isDestroyed()) win.webContents.send('update-available', { version: latest });
+      pendingUpdate = { version: latest };
+      sendUpdateAvailable();
     }
   } catch (err) {
     log('app update check failed: ' + err.message);
@@ -329,6 +336,7 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'titlebar.html'));
+  win.webContents.on('did-finish-load', sendUpdateAvailable); // re-send pending update on (re)load
   win.once('ready-to-show', () => win.show());
 
   // The DSH UI lives in a child view below the title bar.
