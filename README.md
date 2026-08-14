@@ -8,6 +8,7 @@ DeepSeek Harness 的 Windows 桌面应用（Electron）。内嵌 Chromium 打开
 - 无边框窗口，白色主题标题栏，Windows 原生最小化/最大化/关闭按钮
 - 内嵌 Chromium 内核直接打开 DeepSeek Harness Web 界面
 - 外部链接自动转系统浏览器打开
+- 系统托盘：点击关闭最小化到托盘，托盘菜单"退出"会同时停止 dsh 服务
 
 ## 前置要求
 
