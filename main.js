@@ -1,7 +1,8 @@
 // DeepSeek Harness — Electron main process.
-// Frameless window with native caption buttons (titleBarOverlay), the DSH UI in a
-// child WebContentsView, and silent auto-update of the dsh server package from npm.
-const { app, BrowserWindow, WebContentsView, shell } = require('electron');
+// Frameless window (native caption buttons) with the DSH UI in a child WebContentsView.
+// Features: hidden dsh server console, system tray (close hides to tray, tray "quit"
+// stops the dsh server), silent auto-update of the dsh package from npm.
+const { app, BrowserWindow, WebContentsView, Tray, Menu, nativeImage, shell } = require('electron');
 const { spawn, execFile } = require('child_process');
 const http = require('http');
 const path = require('path');
@@ -26,6 +27,9 @@ app.setAppUserModelId(APP_ID);
 
 let win = null;
 let view = null;
+let tray = null;
+let isQuitting = false;
+let serverChild = null; // the dsh server process tree this app started (cmd.exe root PID)
 
 // ---------- logging ----------
 function log(msg) {
@@ -48,14 +52,16 @@ function isUp() {
 async function ensureServer() {
   if (await isUp()) return;
   try {
-    // Run the .cmd shim through cmd.exe (robust .cmd execution from Node),
-    // detached so it keeps serving after this app quits.
+    // Run the .cmd shim through cmd.exe with a HIDDEN console.
+    // NOTE: no `detached: true` — on Windows that forces a visible console
+    // window ("the child will have its own console window"), which windowsHide
+    // cannot suppress. The server runs while the app lives in the tray and is
+    // stopped explicitly on tray quit.
     const child = spawn('cmd.exe', ['/c', DSH_CMD, 'web'], {
-      detached: true,
       stdio: 'ignore',
-      windowsHide: false, // keep the console visible so the user can stop the server
+      windowsHide: true, // no console window
     });
-    child.unref();
+    serverChild = child;
   } catch (err) {
     log('failed to start dsh web: ' + err.message);
   }
@@ -63,6 +69,40 @@ async function ensureServer() {
     await new Promise((r) => setTimeout(r, 1000));
     if (await isUp()) return;
   }
+}
+
+// Stop the dsh server tree this app started (only that tree, never unrelated node processes).
+function killServer() {
+  if (serverChild && serverChild.pid) {
+    try {
+      spawn('taskkill', ['/PID', String(serverChild.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      log('dsh server stopped (app quit)');
+    } catch (err) {
+      log('failed to stop dsh server: ' + err.message);
+    }
+    serverChild = null;
+  }
+}
+
+// ---------- tray ----------
+function showWindow() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function createTray() {
+  const img = fs.existsSync(ICON) ? nativeImage.createFromPath(ICON) : nativeImage.createEmpty();
+  tray = new Tray(img);
+  tray.setToolTip('DeepSeek Harness');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '打开 DeepSeek Harness', click: showWindow },
+    { type: 'separator' },
+    { label: '退出', click: () => app.quit() },
+  ]));
+  tray.on('click', showWindow);
+  tray.on('double-click', showWindow);
 }
 
 // ---------- auto update (silent) ----------
@@ -153,6 +193,15 @@ function createWindow() {
       contextIsolation: false,
     },
   });
+
+  // Close button hides to the tray instead of quitting (unless we are quitting).
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
+
   win.loadFile(path.join(__dirname, 'titlebar.html'));
   win.once('ready-to-show', () => win.show());
 
@@ -177,6 +226,12 @@ function createWindow() {
   win.on('unmaximize', layoutView);
 }
 
+// ---------- lifecycle ----------
+app.on('before-quit', () => {
+  isQuitting = true;
+  killServer(); // tray "quit" (or system shutdown) stops the dsh server we started
+});
+
 app.whenReady().then(async () => {
   const alreadyUp = await isUp();
   if (!alreadyUp) {
@@ -185,6 +240,7 @@ app.whenReady().then(async () => {
   }
   await ensureServer();
   createWindow();
+  createTray();
   if (alreadyUp) {
     // Server already running (e.g. harness session): silent background update for next start.
     checkForUpdates();
@@ -194,6 +250,5 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('window-all-closed', () => {
-  app.quit(); // the dsh web server keeps running in the background
-});
+// Stay resident in the tray; the app only exits via the tray "quit".
+app.on('window-all-closed', () => { /* keep running in the tray */ });
