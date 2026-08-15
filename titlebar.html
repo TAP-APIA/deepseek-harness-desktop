@@ -8,6 +8,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: #ffffff; overflow:
 .brand { display: flex; align-items: center; gap: 8px; padding: 0 14px; color: #1f2937; font-size: 12.5px; font-weight: 600; letter-spacing: 0.2px; white-space: nowrap; }
 .brand svg { width: 17px; height: 17px; display: block; }
 .upgrade { -webkit-app-region: no-drag; display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; padding: 3px 12px; font-size: 12px; font-weight: 600; color: #ffffff; background: #4D6BFE; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; }
+.upgrade[hidden] { display: none; } /* must beat .upgrade's display so the button really hides */
 .upgrade:hover { background: #3b55e0; }
 .upgrade:disabled { opacity: 0.6; cursor: default; }
 </style>

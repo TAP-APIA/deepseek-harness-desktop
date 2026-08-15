@@ -6,10 +6,11 @@ const { app, BrowserWindow, WebContentsView, Tray, Menu, nativeImage, shell, ipc
 const { spawn, execFile } = require('child_process');
 const http = require('http');
 const https = require('https');
+const { URL } = require('url'); // explicit import: the module-level DSH_URL const shadows the global URL
 const path = require('path');
 const fs = require('fs');
 
-const URL = 'http://127.0.0.1:3080';
+const DSH_URL = 'http://127.0.0.1:3080';
 const TITLEBAR_HEIGHT = 40;
 
 // dsh CLI lives at the stable global prefix %APPDATA%\npm (path survives updates).
@@ -47,7 +48,7 @@ function log(msg) {
 // ---------- server ----------
 function isUp() {
   return new Promise((resolve) => {
-    const req = http.get(URL, (res) => {
+    const req = http.get(DSH_URL, (res) => {
       resolve(res.statusCode === 200);
       req.destroy();
     });
@@ -400,7 +401,7 @@ function createWindow() {
     shell.openExternal(url); // open external links in the system browser
     return { action: 'deny' };
   });
-  view.webContents.loadURL(URL);
+  view.webContents.loadURL(DSH_URL);
 
   layoutView();
   win.on('resize', layoutView);
