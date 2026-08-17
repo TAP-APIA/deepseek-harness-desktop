@@ -13,10 +13,31 @@ const fs = require('fs');
 const DSH_URL = 'http://127.0.0.1:3080';
 const TITLEBAR_HEIGHT = 40;
 
-// dsh CLI lives at the stable global prefix %APPDATA%\npm (path survives updates).
+// Bundled runtime (Node.js + dsh CLI) ships inside the app under resources\runtime
+// (packaged) or <app dir>\runtime (dev); falls back to the global npm install if
+// the bundle is absent.
 const APPDATA = process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
-const DSH_CMD = path.join(APPDATA, 'npm', 'dsh.cmd');
-const DSH_PKG = path.join(APPDATA, 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'package.json');
+function resolveRuntime() {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'runtime'),
+    path.join(__dirname, 'runtime'),
+  ];
+  for (const c of candidates) {
+    if (c && fs.existsSync(path.join(c, 'node', 'node.exe'))) return c;
+  }
+  return null;
+}
+const RUNTIME = resolveRuntime();
+const NODE_EXE = RUNTIME
+  ? path.join(RUNTIME, 'node', 'node.exe')
+  : path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe');
+const NPM_CLI = RUNTIME
+  ? path.join(RUNTIME, 'node', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  : path.join(path.dirname(NODE_EXE), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+const DSH_DIR = RUNTIME
+  ? path.join(RUNTIME, 'dsh')
+  : path.join(APPDATA, 'npm');
+const DSH_PKG = path.join(DSH_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'package.json');
 
 // Keep everything under %LOCALAPPDATA%\DeepSeek Harness (whale icon, npm cache, logs).
 const APP_DIR = path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'DeepSeek Harness');
@@ -70,15 +91,23 @@ function isUp() {
 async function ensureServer() {
   if (await isUp()) return;
   try {
-    // Run the .cmd shim through cmd.exe with a HIDDEN console.
-    // NOTE: no `detached: true` — on Windows that forces a visible console
-    // window ("the child will have its own console window"), which windowsHide
-    // cannot suppress. The server runs while the app lives in the tray and is
-    // stopped explicitly on tray quit.
-    const child = spawn('cmd.exe', ['/c', DSH_CMD, 'web'], {
-      stdio: 'ignore',
-      windowsHide: true, // no console window
-    });
+    // Run the dsh server with a HIDDEN console (no detached:true — on Windows that
+    // forces a visible console window). The server runs while the app lives in the
+    // tray and is stopped explicitly on tray quit.
+    let child;
+    if (RUNTIME && fs.existsSync(path.join(DSH_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))) {
+      // bundled runtime: node.exe <dsh>/lib/bin.js web
+      child = spawn(NODE_EXE, [path.join(DSH_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'), 'web'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      // fallback: global dsh.cmd shim via cmd.exe
+      child = spawn('cmd.exe', ['/c', path.join(APPDATA, 'npm', 'dsh.cmd'), 'web'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    }
     serverChild = child;
   } catch (err) {
     log('failed to start dsh web: ' + err.message);
@@ -166,10 +195,9 @@ function isNewer(latest, installed) {
 
 function runNpm(args) {
   // Run npm through node.exe + npm-cli.js (spawning npm.cmd directly is EINVAL on modern Node).
-  const nodeDir = path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs');
-  const nodeExe = path.join(nodeDir, 'node.exe');
-  const npmCli = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  const viaCli = fs.existsSync(nodeExe) && fs.existsSync(npmCli);
+  const nodeExe = NODE_EXE;
+  const npmCli = NPM_CLI;
+  const viaCli = nodeExe && npmCli && fs.existsSync(nodeExe) && fs.existsSync(npmCli);
   const bin = viaCli ? nodeExe : 'npm.cmd';
   const fullArgs = viaCli ? [npmCli].concat(args) : args;
   const opts = { windowsHide: true, timeout: 240000, maxBuffer: 8 * 1024 * 1024 };
@@ -189,7 +217,12 @@ async function checkForUpdates() {
     log('check: latest=' + latest + ' installed=' + installed);
     if (latest && installed && isNewer(latest, installed)) {
       log('update found, installing ' + latest);
-      await runNpm(['install', '-g', '@deepseek-ai/dsh@' + latest, '--cache', NPM_CACHE]);
+      if (RUNTIME) {
+        // bundled dsh: update in place under the app's runtime dir
+        await runNpm(['install', '@deepseek-ai/dsh@' + latest, '--prefix', DSH_DIR, '--cache', NPM_CACHE]);
+      } else {
+        await runNpm(['install', '-g', '@deepseek-ai/dsh@' + latest, '--cache', NPM_CACHE]);
+      }
       log('installed ' + latest + ' (takes effect on next server start)');
     }
   } catch (err) {

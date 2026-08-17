@@ -5,3 +5,4 @@ npm-cache/
 electron-data/
 .DS_Store
 Thumbs.db
+runtime/

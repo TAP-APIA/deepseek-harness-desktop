@@ -1,7 +1,7 @@
 {
     "name":  "deepseek-harness-desktop",
     "productName":  "DeepSeek Harness",
-    "version":  "1.2.2",
+    "version":  "1.3.0",
     "description":  "DeepSeek Harness desktop app (Electron)",
     "main":  "main.js",
     "author":  "deepseek-ai",
@@ -33,7 +33,16 @@
                                "createDesktopShortcut":  true,
                                "createStartMenuShortcut":  true,
                                "shortcutName":  "DeepSeek Harness"
-                           }
+                           },
+                  "extraResources":  [
+                                         {
+                                             "filter":  [
+                                                            "**/*"
+                                                        ],
+                                             "from":  "runtime",
+                                             "to":  "runtime"
+                                         }
+                                     ]
               },
     "devDependencies":  {
                             "electron-builder":  "^26.15.3",

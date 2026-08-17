@@ -1,6 +1,6 @@
 # DeepSeek Harness 桌面版
 
-DeepSeek Harness 的 Windows 桌面应用（Electron）。内嵌 Chromium 打开 DeepSeek Harness Web GUI。
+DeepSeek Harness 的 Windows 桌面应用（Electron）。内嵌 Chromium 打开 DeepSeek Harness Web GUI。安装包已内置 Node.js 与 dsh 运行时，**无需预装任何环境，安装即用**。
 
 ## 功能
 
@@ -9,22 +9,22 @@ DeepSeek Harness 的 Windows 桌面应用（Electron）。内嵌 Chromium 打开
 - 内嵌 Chromium 内核直接打开 DeepSeek Harness Web 界面
 - 外部链接自动转系统浏览器打开
 - 系统托盘：点击关闭最小化到托盘，托盘菜单"退出"会同时停止 dsh 服务
-- 自更新：启动时及每 2 小时从 GitHub 检查新版本，发现更新时标题栏右侧显示"升级"按钮，点击自动下载安装
+- 内置 Node.js 与 dsh CLI 运行时，安装后无需单独安装 Node.js / npm / dsh
 
 ## 前置要求
 
-- Windows 10/11
-- 已全局安装 DeepSeek Harness CLI：`npm install -g @deepseek-ai/dsh`
-- Node.js 22+（含 npm）
+- Windows 10 / Windows 11（x64）
 
 ## 使用
+
+直接运行安装程序（见 Releases），安装后从桌面快捷方式或开始菜单启动即可。
+
+## 从源码开发
 
 ```bash
 npm install
 npm start
 ```
-
-或直接运行打包好的安装程序（见 Releases）。
 
 ## 打包
 
@@ -33,7 +33,7 @@ npm install --save-dev electron-builder
 npx electron-builder --win nsis
 ```
 
-产物在 `dist/` 目录。
+产物在 `dist/` 目录。`runtime/` 目录（内置 Node.js 与 dsh）由打包脚本准备，不入库。
 
 ## 技术栈
 
