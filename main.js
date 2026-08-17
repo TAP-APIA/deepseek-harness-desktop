@@ -27,6 +27,16 @@ const UPDATE_LOG = path.join(APP_DIR, 'updater.log');
 const APP_ID = 'com.deepseek.harness.desktop';
 app.setAppUserModelId(APP_ID);
 
+// ---------- single instance ----------
+// Only one instance may run: a second launch quits itself and focuses the
+// existing window, so no extra processes and no extra server/ports are created.
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => { showWindow(); });
+}
+
 // Self-update source: this GitHub repo (version comes from the main branch package.json).
 const REPO = 'TAP-APIA/deepseek-harness-desktop';
 const VERSION_URL = 'https://raw.githubusercontent.com/' + REPO + '/main/package.json';
@@ -416,6 +426,7 @@ app.on('before-quit', () => {
 });
 
 app.whenReady().then(async () => {
+  if (!gotTheLock) return; // second instance: quit was already requested
   const alreadyUp = await isUp();
   if (!alreadyUp) {
     // Fresh start (no server yet): update first so the server boots on the newest version.
