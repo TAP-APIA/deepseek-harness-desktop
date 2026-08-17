@@ -1,7 +1,7 @@
 {
     "name":  "deepseek-harness-desktop",
     "productName":  "DeepSeek Harness",
-    "version":  "1.2.1",
+    "version":  "1.2.2",
     "description":  "DeepSeek Harness desktop app (Electron)",
     "main":  "main.js",
     "author":  "deepseek-ai",
