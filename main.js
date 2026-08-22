@@ -200,7 +200,7 @@ function runNpm(args) {
   const viaCli = nodeExe && npmCli && fs.existsSync(nodeExe) && fs.existsSync(npmCli);
   const bin = viaCli ? nodeExe : 'npm.cmd';
   const fullArgs = viaCli ? [npmCli].concat(args) : args;
-  const opts = { windowsHide: true, timeout: 240000, maxBuffer: 8 * 1024 * 1024 };
+  const opts = { windowsHide: true, timeout: 30000, maxBuffer: 8 * 1024 * 1024 };
   if (!viaCli) opts.shell = true; // fallback: npm.cmd via shell
   return new Promise((resolve, reject) => {
     execFile(bin, fullArgs, opts, (err, stdout, stderr) => {
@@ -444,7 +444,23 @@ function createWindow() {
     shell.openExternal(url); // open external links in the system browser
     return { action: 'deny' };
   });
-  view.webContents.loadURL(DSH_URL);
+
+  let retryTimer = null;
+  const loadUi = () => {
+    if (view && !view.webContents.isDestroyed()) {
+      view.webContents.loadURL(DSH_URL).catch(() => {});
+    }
+  };
+
+  view.webContents.on('did-fail-load', (_e, errorCode) => {
+    // Retry loading if connection is refused or server is still starting up
+    if (errorCode === -102 || errorCode === -105 || errorCode === -106 || errorCode === -107 || errorCode === -109) {
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(loadUi, 800);
+    }
+  });
+
+  loadUi();
 
   layoutView();
   win.on('resize', layoutView);
@@ -460,21 +476,25 @@ app.on('before-quit', () => {
 
 app.whenReady().then(async () => {
   if (!gotTheLock) return; // second instance: quit was already requested
-  const alreadyUp = await isUp();
-  if (!alreadyUp) {
-    // Fresh start (no server yet): update first so the server boots on the newest version.
-    await checkForUpdates();
-  }
-  await ensureServer();
   ensureIcon();
   createWindow();
   createTray();
+
+  // Ensure dsh server starts in parallel and refresh view when up
+  ensureServer().then(() => {
+    if (view && !view.webContents.isDestroyed()) {
+      view.webContents.loadURL(DSH_URL).catch(() => {});
+    }
+  });
+
+  // Non-blocking silent background update checks
+  checkForUpdates().catch((err) => log('dsh update check failed: ' + err.message));
   checkForAppUpdates(); // GitHub self-update check (shows the title bar upgrade button)
   setInterval(checkForAppUpdates, 2 * 60 * 60 * 1000); // re-check every 2 hours
-  if (alreadyUp) {
-    // Server already running (e.g. harness session): silent background update for next start.
-    checkForUpdates();
-  }
+  setInterval(() => {
+    checkForUpdates().catch((err) => log('dsh update check failed: ' + err.message));
+  }, 2 * 60 * 60 * 1000);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
